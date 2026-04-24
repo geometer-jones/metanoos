@@ -9,6 +9,7 @@ from metanoos.state import (
     measure,
     parallel_prefix_scan,
     prefix_scan,
+    state_memory_estimate,
 )
 
 
@@ -122,3 +123,19 @@ def test_measurement_uses_real_positive_support() -> None:
 
     assert y.shape == (2, 2, 3)
     assert y.is_complex()
+
+
+def test_state_memory_estimate_counts_materialized_prefix_tensors() -> None:
+    estimate = state_memory_estimate(
+        seq_len=2048,
+        batch_size=4,
+        num_heads=8,
+        value_dim=64,
+        key_dim=64,
+        dtype=torch.cfloat,
+    )
+
+    assert estimate.S_bytes == 2 * 1024**3
+    assert estimate.Z_bytes == 4 * 2048 * 4 * 8 * 64
+    assert estimate.total_bytes > estimate.S_bytes
+    assert estimate.as_dict()["total_bytes"] == estimate.total_bytes

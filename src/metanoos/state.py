@@ -35,6 +35,75 @@ class AssociativeState:
         )
 
 
+@dataclass(frozen=True)
+class StateMemoryEstimate:
+    """Byte estimate for materialized prefix state tensors."""
+
+    alpha_s_bytes: int
+    alpha_z_bytes: int
+    S_bytes: int
+    Z_bytes: int
+
+    @property
+    def total_bytes(self) -> int:
+        return self.alpha_s_bytes + self.alpha_z_bytes + self.S_bytes + self.Z_bytes
+
+    @property
+    def total_gib(self) -> float:
+        return self.total_bytes / (1024**3)
+
+    def as_dict(self) -> dict[str, int]:
+        return {
+            "alpha_s_bytes": self.alpha_s_bytes,
+            "alpha_z_bytes": self.alpha_z_bytes,
+            "S_bytes": self.S_bytes,
+            "Z_bytes": self.Z_bytes,
+            "total_bytes": self.total_bytes,
+        }
+
+
+def state_memory_estimate(
+    *,
+    seq_len: int,
+    batch_size: int,
+    num_heads: int,
+    value_dim: int,
+    key_dim: int,
+    dtype: torch.dtype = torch.cfloat,
+    num_layers: int = 1,
+) -> StateMemoryEstimate:
+    """Estimate materialized inclusive-prefix state memory.
+
+    The estimate counts the tensors returned by `parallel_prefix_scan` for one
+    or more layers: complex `alpha_s` and `S`, plus real `alpha_z` and `Z`.
+    It does not include autograd saved tensors, temporary scan tensors, model
+    parameters, optimizer state, or allocator fragmentation.
+    """
+
+    dimensions = {
+        "seq_len": seq_len,
+        "batch_size": batch_size,
+        "num_heads": num_heads,
+        "value_dim": value_dim,
+        "key_dim": key_dim,
+        "num_layers": num_layers,
+    }
+    invalid = [name for name, value in dimensions.items() if value <= 0]
+    if invalid:
+        names = ", ".join(invalid)
+        raise ValueError(f"state memory dimensions must be positive: {names}")
+
+    complex_bytes = torch.empty((), dtype=dtype).element_size()
+    real_bytes = torch.empty((), dtype=real_dtype_for(dtype)).element_size()
+    head_steps = num_layers * batch_size * seq_len * num_heads
+    return StateMemoryEstimate(
+        alpha_s_bytes=head_steps * complex_bytes,
+        alpha_z_bytes=head_steps * real_bytes,
+        S_bytes=head_steps * value_dim * key_dim * complex_bytes,
+        Z_bytes=head_steps * key_dim * real_bytes,
+    )
+
+
 def compose(left: AssociativeState, right: AssociativeState) -> AssociativeState:
     """Chronologically compose `left o right`.
 

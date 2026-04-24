@@ -55,6 +55,33 @@ model = ComposedStateLanguageModel(
 External comparisons should include real-valued GLA and diagonal real/complex
 SSM baselines with matched parameter and compute budgets.
 
+## Experiment Sizing
+
+```python
+from metanoos import ComposedStateLanguageModel, state_memory_estimate
+
+model = ComposedStateLanguageModel(
+    vocab_size=8000,
+    d_model=512,
+    num_layers=6,
+    num_heads=8,
+    key_dim=32,              # per-head key dimension
+    value_dim=64,            # per-head value dimension
+    tie_readout_carrier=True,
+)
+
+print(model.real_param_count())
+
+estimate = state_memory_estimate(
+    seq_len=2048,
+    batch_size=4,
+    num_heads=8,
+    key_dim=32,
+    value_dim=64,
+)
+print(estimate.S_bytes, estimate.total_bytes)
+```
+
 ## Quick Start
 
 ```python

@@ -8,6 +8,7 @@ from metanoos import (
     available_ablations,
     phase_feature,
     positive_gate,
+    real_parameter_count,
 )
 
 
@@ -36,6 +37,33 @@ def test_mixing_scan_matches_step() -> None:
     recurrent = torch.stack(stepped, dim=1)
 
     torch.testing.assert_close(full, recurrent, rtol=1e-5, atol=1e-5)
+
+
+def test_mixing_supports_separate_key_value_dims() -> None:
+    torch.manual_seed(0)
+    layer = ComposedStateMixing(d_model=8, num_heads=2, key_dim=3, value_dim=5)
+    x = torch.randn(2, 5, 8, dtype=torch.cfloat)
+
+    full, prefix = layer(x, return_state=True)
+    memory = None
+    stepped = []
+    for index in range(x.shape[1]):
+        y, memory = layer.step(x[:, index], memory)
+        stepped.append(y)
+    recurrent = torch.stack(stepped, dim=1)
+
+    assert full.shape == (2, 5, 8)
+    assert prefix.S.shape == (2, 5, 2, 5, 3)
+    assert prefix.Z.shape == (2, 5, 2, 3)
+    torch.testing.assert_close(full, recurrent, rtol=1e-5, atol=1e-5)
+
+
+def test_head_dim_must_match_explicit_key_value_dims() -> None:
+    with pytest.raises(ValueError, match="key_dim must match head_dim"):
+        ComposedStateMixing(d_model=8, num_heads=2, head_dim=4, key_dim=3)
+
+    with pytest.raises(ValueError, match="value_dim must match head_dim"):
+        ComposedStateMixing(d_model=8, num_heads=2, head_dim=4, value_dim=3)
 
 
 @pytest.mark.parametrize("transport", ["rotary_decay", "decay", "none"])
@@ -116,6 +144,34 @@ def test_ablation_kwargs_allow_overrides() -> None:
     assert kwargs["transport"] == "rotary_decay"
     assert kwargs["feature_mode"] == "complex"
     assert kwargs["readout"] == "real"
+
+
+def test_language_model_can_tie_readout_carrier_to_embedding() -> None:
+    model = ComposedStateLanguageModel(
+        vocab_size=17,
+        d_model=8,
+        num_layers=1,
+        num_heads=2,
+        tie_readout_carrier=True,
+    )
+
+    assert model.readout_carrier is model.embed
+    assert model.readout_carrier.weight is model.embed.weight
+
+
+def test_real_param_count_counts_complex_params_and_tying() -> None:
+    untied = ComposedStateLanguageModel(vocab_size=17, d_model=8, num_layers=1, num_heads=2)
+    tied = ComposedStateLanguageModel(
+        vocab_size=17,
+        d_model=8,
+        num_layers=1,
+        num_heads=2,
+        tie_readout_carrier=True,
+    )
+
+    assert untied.real_param_count() == real_parameter_count(untied)
+    assert tied.real_param_count() == real_parameter_count(tied)
+    assert untied.real_param_count() - tied.real_param_count() == 2 * 17 * 8
 
 
 def test_born_readout_is_global_phase_invariant() -> None:

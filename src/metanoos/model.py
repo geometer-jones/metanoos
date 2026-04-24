@@ -20,6 +20,12 @@ class ComposedStateOutput:
     hidden_states: Tensor | None = None
 
 
+def real_parameter_count(module: nn.Module) -> int:
+    """Count complex parameters as two real-valued parameters."""
+
+    return sum(parameter.numel() * (2 if parameter.is_complex() else 1) for parameter in module.parameters())
+
+
 class ComposedStateLanguageModel(nn.Module):
     """Token model with complex hidden states and gauge-aware vocabulary readout."""
 
@@ -31,8 +37,11 @@ class ComposedStateLanguageModel(nn.Module):
         num_layers: int,
         num_heads: int = 1,
         head_dim: int | None = None,
+        key_dim: int | None = None,
+        value_dim: int | None = None,
         mlp_ratio: int = 4,
         readout: str = "born",
+        tie_readout_carrier: bool = False,
         transport: bool | str = "rotary_decay",
         feature_mode: str = "complex",
     ) -> None:
@@ -43,6 +52,7 @@ class ComposedStateLanguageModel(nn.Module):
         self.vocab_size = vocab_size
         self.d_model = d_model
         self.readout = readout
+        self.tie_readout_carrier = tie_readout_carrier
         self.embed = ComplexEmbedding(vocab_size, d_model)
         self.blocks = nn.ModuleList(
             [
@@ -50,6 +60,8 @@ class ComposedStateLanguageModel(nn.Module):
                     d_model,
                     num_heads=num_heads,
                     head_dim=head_dim,
+                    key_dim=key_dim,
+                    value_dim=value_dim,
                     mlp_ratio=mlp_ratio,
                     transport=transport,
                     feature_mode=feature_mode,
@@ -58,8 +70,16 @@ class ComposedStateLanguageModel(nn.Module):
             ]
         )
         self.norm = ComplexRMSNorm(d_model)
-        self.readout_carrier = ComplexEmbedding(vocab_size, d_model)
+        if tie_readout_carrier:
+            self.readout_carrier = self.embed
+        else:
+            self.readout_carrier = ComplexEmbedding(vocab_size, d_model)
         self.logit_bias = nn.Parameter(torch.zeros(vocab_size))
+
+    def real_param_count(self) -> int:
+        """Return the model size in real-valued parameters."""
+
+        return real_parameter_count(self)
 
     def amplitudes(self, x: Tensor) -> Tensor:
         return x @ self.readout_carrier.weight.conj_physical().transpose(0, 1)

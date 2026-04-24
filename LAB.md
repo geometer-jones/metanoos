@@ -14,9 +14,9 @@ chronological by experiment number: newest at top, oldest at bottom.
 **Purpose:** Compare depth, width, key/value state size, and MLP expansion at
 roughly 50M real-valued parameters.
 
-**Status:** TODO. Requires implementation support for tied input/output carrier
-weights and separate `d_k` / `d_v` dimensions before the parameter counts below
-are exact.
+**Status:** TODO. Implementation support now exists for tied input/output
+carrier weights, separate `d_k` / `d_v` dimensions, real-valued parameter
+counts, and prefix-state memory estimates. CUDA layout runs are still pending.
 
 **Budget convention:**
 
@@ -24,13 +24,15 @@ are exact.
 - Target approximately 50M real-valued parameters.
 - Assume tied input embedding and output unembedding for the Born readout.
 - Initial vocabulary assumption: 8k subwords. Recompute if using 16k or larger.
+- Constructor `key_dim` and `value_dim` are per-head dimensions. Table `d_k`
+  and `d_v` values are aggregate dimensions across heads.
 
-**Current implementation gaps to close first:**
+**Implementation support:**
 
-- Add optional tying between `embed.weight` and the Born readout carrier.
-- Split the current single `head_dim` into explicit `key_dim` and `value_dim`.
-- Add a parameter-count utility that reports real-valued parameter count.
-- Add a memory-estimate utility for prefix state size:
+- `tie_readout_carrier=True` ties `embed.weight` and the Born readout carrier.
+- `key_dim` and `value_dim` split the former single `head_dim`.
+- `model.real_param_count()` reports real-valued parameter count.
+- `state_memory_estimate(...)` estimates prefix state size:
   `batch * heads * value_dim * key_dim * seq_len` complex elements for `S`.
 
 **Layout candidates:**

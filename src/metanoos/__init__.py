@@ -19,9 +19,10 @@ from metanoos.corpora import (
     read_corpus_text,
 )
 from metanoos.layers import ComposedStateBlock, ComposedStateMixing, TemporalTransport
-from metanoos.model import ComposedStateLanguageModel, ComposedStateOutput
+from metanoos.model import ComposedStateLanguageModel, ComposedStateOutput, real_parameter_count
 from metanoos.state import (
     AssociativeState,
+    StateMemoryEstimate,
     compose,
     identity_like,
     identity_state,
@@ -29,6 +30,7 @@ from metanoos.state import (
     measure,
     parallel_prefix_scan,
     prefix_scan,
+    state_memory_estimate,
 )
 
 __all__ = [
@@ -43,6 +45,7 @@ __all__ = [
     "ComposedStateMixing",
     "ComposedStateOutput",
     "ModReLU",
+    "StateMemoryEstimate",
     "TemporalTransport",
     "ablation_model_kwargs",
     "available_ablations",
@@ -62,4 +65,6 @@ __all__ = [
     "read_corpus_readme",
     "read_corpus_sources",
     "read_corpus_text",
+    "real_parameter_count",
+    "state_memory_estimate",
 ]
