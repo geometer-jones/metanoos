@@ -6,8 +6,8 @@ is not attention, but associative state composition.
 Attention treats sequence positions as objects with intrinsic pairwise
 similarities, then normalizes those similarities into weights. This architecture
 treats sequence positions as generators of a composed relational state: a
-density-operator-like sufficient statistic from which later positions extract
-readouts through measurement.
+monoid element that serves as a sufficient statistic from which later positions
+extract readouts through normalized projection.
 
 The prefix state is not an approximation to an attention matrix. It is a
 different mathematical species.
@@ -18,16 +18,19 @@ The system is a research testbed for a composed-state view of sequence modeling.
 
 The core question is:
 
-> Can a causal sequence be represented by an associative relational state whose
-> content is complex, whose relevance mass is real, and whose readouts are
-> measurements against the accumulated prefix?
+> Can a causal sequence be represented by an associative monoid element — a
+> composed relational state whose content is complex, whose relevance mass is
+> real, and whose readouts are normalized projections against the accumulated
+> prefix?
 
-The deepest structure is associativity. Associativity is what makes the prefix
-state well-defined independent of evaluation order, what guarantees equivalence
-between full-sequence training and one-step inference, and what makes the scan a
-genuine mathematical primitive rather than an implementation convenience.
+The prefix state is an element of a monoid under chronological composition.
+The identity element is `(1, 1, 0, 0)`. Associativity is the monoid law that
+makes the prefix state well-defined independent of evaluation order, that
+guarantees equivalence between full-sequence training and one-step inference,
+and that makes the scan a genuine mathematical primitive rather than an
+implementation convenience.
 
-The phase split is the content of the primitive. Associativity is its form.
+The phase split is the content of the primitive. The monoid law is its form.
 
 ## Ontology
 
@@ -115,8 +118,26 @@ alpha_Z,t in R_+
 `alpha_Z,t` attenuates real mass. `alpha_S,t` attenuates and rotates complex
 content.
 
-This distinction is important: old tokens do not merely fade. Their contribution
-can curve through phase as it is transported forward in time.
+## Two-Channel Transport
+
+The architecture separates information into two channels with independent
+transport laws:
+
+- **Rotational channel:** complex content `S` transported by complex
+  `alpha_S`, which attenuates and rotates. Old content may arrive at the
+  readout in a different phase relationship to newer content.
+- **Real channel:** real support `Z` transported by real `alpha_Z`, which
+  attenuates without rotation. Support only weakens; it does not curve.
+
+This split is the architecture's distinctive structural commitment. It is
+what separates the prefix state from a decay-weighted linear attention
+accumulator: the rotational channel carries content that can interfere,
+cancel, and accumulate phase curvature through time, while the real channel
+preserves a strictly nonnegative notion of support against which those
+complex readouts are normalized.
+
+The empirical question is whether this rotational content helps or hurts for
+actual sequence tasks.
 
 ## Associative Composition
 
@@ -194,8 +215,11 @@ The measured output is:
 y_t = n_t / d_t
 ```
 
-This is a measurement of the prefix state, not a weighted sum over an explicit
-set of pairwise similarities.
+This is a normalized linear projection of the prefix state, not a Born-rule
+measurement and not a weighted sum over an explicit set of pairwise
+similarities. The Born-rule structure enters only at the vocabulary readout
+(see Gauge Structure And Readout); the intermediate readout is a linear
+projection of complex content divided by real support.
 
 The denominator measures real support. The numerator measures complex relational
 content. Their ratio extracts a normalized complex readout from the composed
@@ -203,27 +227,12 @@ state.
 
 ## Rotational Memory
 
-The architecture's distinctive temporal prediction is rotational memory.
+Rotational memory is the empirical consequence of the two-channel transport
+split. Whereas scalar decay only weakens the past, complex `alpha_S` makes
+time a source of curvature: older evidence may arrive at the readout in a
+different phase relationship to newer evidence, producing interference.
 
-In scalar decay, the past only weakens:
-
-```text
-old contribution -> smaller old contribution
-```
-
-Here, transported complex content may both attenuate and rotate:
-
-```text
-old contribution -> smaller, phase-shifted old contribution
-```
-
-This makes time a source of curvature in the memory state. Older evidence may
-not simply count less; it may arrive at the readout in a different phase
-relationship to newer evidence.
-
-That curvature can create useful interference or useless noise. The empirical
-question for the testbed is whether this is the right kind of loss for sequence
-tasks:
+The open research questions:
 
 - Does temporal rotation encode useful order structure?
 - Does phase curvature help separate overlapping memories?
@@ -241,14 +250,14 @@ For vocabulary carrier `e_v`, the amplitude for token `v` is:
 a_v = <x_t, e_v>
 ```
 
-The default measurement is Born-rule-like:
+The default measurement is the Born rule on the amplitude:
 
 ```text
 logit_v = |a_v|^2
 ```
 
-This readout is invariant under global U(1) phase rotation. The observable
-output depends on relative phase structure, not absolute phase.
+This readout is invariant under global U(1) phase rotation of `x_t`. The
+observable output depends on relative phase structure, not absolute phase.
 
 That invariance is not decorative. It defines a gauge freedom:
 
@@ -256,7 +265,14 @@ That invariance is not decorative. It defines a gauge freedom:
 x_t -> exp(i theta) x_t
 ```
 
-under which Born-style logits remain unchanged.
+under which Born-rule logits remain unchanged.
+
+This invariance does not extend to the prefix state. The phase structure of
+the composed state carries genuine rotational content that affects the
+intermediate projection `y_t = S q_phase / (<Z, q_gate> + eps)`. Only the
+final vocabulary readout is phase-invariant; the prefix state itself is not
+gauge-equivalent to a phase-rotated copy, and the rotational channel is not
+gauge-redundant.
 
 An alternate real readout,
 
