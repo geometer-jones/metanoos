@@ -46,6 +46,26 @@ _ABLATIONS: dict[str, AblationSpec] = {
             "readout": "born",
         },
     ),
+    "complex_rope_decay_gla": AblationSpec(
+        name="complex_rope_decay_gla",
+        description="Fixed RoPE q/k phase with real positive content decay.",
+        model_kwargs={
+            "transport": "decay",
+            "feature_mode": "complex",
+            "position_encoding": "rope",
+            "readout": "born",
+        },
+    ),
+    "complex_rope_rotary_gla": AblationSpec(
+        name="complex_rope_rotary_gla",
+        description="Fixed RoPE q/k phase plus learned per-head complex decay.",
+        model_kwargs={
+            "transport": "rotary_decay",
+            "feature_mode": "complex",
+            "position_encoding": "rope",
+            "readout": "born",
+        },
+    ),
     "magnitude_feature_gla": AblationSpec(
         name="magnitude_feature_gla",
         description="Ablates q/k phase by using positive magnitude features for q and k.",

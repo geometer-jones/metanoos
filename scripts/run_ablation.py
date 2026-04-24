@@ -34,6 +34,8 @@ ABLATION_ORDER = [
     "complex_rotary_gla",
     "complex_decay_gla",
     "complex_linear_attention",
+    "complex_rope_decay_gla",
+    "complex_rope_rotary_gla",
     "magnitude_feature_gla",
     "real_readout_gla",
 ]
@@ -229,9 +231,11 @@ def generate_sample(
     prompt_bytes = list(prompt.encode("utf-8")) or [10]
     memories = None
     logits = None
+    position = 0
     for token in prompt_bytes:
         token_tensor = torch.tensor([token], device=device)
-        logits, memories = model.step(token_tensor, memories)
+        logits, memories = model.step(token_tensor, memories, position=position)
+        position += 1
     generated = list(prompt_bytes)
     assert logits is not None
 
@@ -240,7 +244,8 @@ def generate_sample(
         probs = torch.softmax(next_logits, dim=-1)
         next_token = int(torch.multinomial(probs, 1).item())
         generated.append(next_token)
-        logits, memories = model.step(torch.tensor([next_token], device=device), memories)
+        logits, memories = model.step(torch.tensor([next_token], device=device), memories, position=position)
+        position += 1
 
     return bytes(generated).decode("utf-8", errors="replace")
 
@@ -409,6 +414,8 @@ def metadata_for_run(
             "num_heads": first_mixer.num_heads,
             "key_dim_per_head": first_mixer.key_dim,
             "value_dim_per_head": first_mixer.value_dim,
+            "position_encoding": first_mixer.position_encoding,
+            "rotary_base": first_mixer.rotary_base,
             "mlp_ratio": args.mlp_ratio,
             "tie_readout_carrier": args.tie_readout_carrier,
         },

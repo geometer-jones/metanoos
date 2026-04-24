@@ -19,6 +19,7 @@ from metanoos.state import AssociativeState, compose, identity_state, local_stat
 
 TRANSPORT_MODES = {"rotary_decay", "decay", "none"}
 FEATURE_MODES = {"complex", "magnitude"}
+POSITION_ENCODINGS = {"none", "rope"}
 
 
 def normalize_transport_mode(transport: bool | str) -> str:
@@ -30,6 +31,44 @@ def normalize_transport_mode(transport: bool | str) -> str:
         available = ", ".join(sorted(TRANSPORT_MODES))
         raise ValueError(f"transport must be a bool or one of: {available}")
     return transport
+
+
+def apply_rotary_position_encoding(x: Tensor, positions: int | Tensor, *, base: float = 10000.0) -> Tensor:
+    """Apply unit-magnitude complex RoPE rotations over the last dimension."""
+
+    if base <= 0.0:
+        raise ValueError("rotary base must be positive")
+    dim = x.shape[-1]
+    if dim <= 0:
+        raise ValueError("rotary position encoding requires a non-empty feature dimension")
+
+    real_dtype = real_dtype_for(x.dtype)
+    inv_freq = torch.pow(
+        torch.tensor(base, device=x.device, dtype=real_dtype),
+        -torch.arange(dim, device=x.device, dtype=real_dtype) / dim,
+    )
+    position_tensor = torch.as_tensor(positions, device=x.device, dtype=real_dtype)
+
+    if position_tensor.ndim == 0:
+        angles = position_tensor * inv_freq
+        rotation_shape = (1,) * (x.ndim - 1) + (dim,)
+    elif position_tensor.ndim == 1:
+        if x.ndim < 4:
+            raise ValueError("1D positions require an input with an explicit sequence dimension")
+        seq_len = x.shape[-3]
+        if position_tensor.numel() != seq_len:
+            raise ValueError("1D positions must match the sequence dimension")
+        angles = position_tensor[:, None] * inv_freq[None, :]
+        rotation_shape = (1,) * (x.ndim - 3) + (seq_len, 1, dim)
+    else:
+        expected_shape = x.shape[:-2]
+        if tuple(position_tensor.shape) != expected_shape:
+            raise ValueError("positions must be scalar, sequence-shaped, or match input leading dimensions")
+        angles = position_tensor[..., None] * inv_freq
+        rotation_shape = (*position_tensor.shape, 1, dim)
+
+    rotation = torch.polar(torch.ones_like(angles), angles).reshape(rotation_shape)
+    return x * rotation.to(dtype=x.dtype)
 
 
 class TemporalTransport(nn.Module):
@@ -93,6 +132,8 @@ class ComposedStateMixing(nn.Module):
         value_dim: int | None = None,
         transport: bool | str = "rotary_decay",
         feature_mode: str = "complex",
+        position_encoding: str = "none",
+        rotary_base: float = 10000.0,
         eps: float = 1e-8,
     ) -> None:
         super().__init__()
@@ -130,6 +171,13 @@ class ComposedStateMixing(nn.Module):
             available = ", ".join(sorted(FEATURE_MODES))
             raise ValueError(f"feature_mode must be one of: {available}")
         self.feature_mode = feature_mode
+        if position_encoding not in POSITION_ENCODINGS:
+            available = ", ".join(sorted(POSITION_ENCODINGS))
+            raise ValueError(f"position_encoding must be one of: {available}")
+        if rotary_base <= 0.0:
+            raise ValueError("rotary_base must be positive")
+        self.position_encoding = position_encoding
+        self.rotary_base = rotary_base
 
         self.q_proj = ComplexLinear(d_model, self.key_inner_dim)
         self.k_proj = ComplexLinear(d_model, self.key_inner_dim)
@@ -157,6 +205,21 @@ class ComposedStateMixing(nn.Module):
             k_feature = k_gate.to(dtype=k.dtype)
         return q_gate, q_feature, k_gate, k_feature, v
 
+    def _apply_position_encoding(
+        self,
+        q_feature: Tensor,
+        k_feature: Tensor,
+        positions: int | Tensor | None,
+    ) -> tuple[Tensor, Tensor]:
+        if self.position_encoding == "none":
+            return q_feature, k_feature
+        if positions is None:
+            raise ValueError("position is required when position_encoding='rope'")
+        return (
+            apply_rotary_position_encoding(q_feature, positions, base=self.rotary_base),
+            apply_rotary_position_encoding(k_feature, positions, base=self.rotary_base),
+        )
+
     def initial_state(self, batch_shape: tuple[int, ...], *, device: torch.device, dtype: torch.dtype) -> AssociativeState:
         return identity_state(
             batch_shape,
@@ -167,11 +230,20 @@ class ComposedStateMixing(nn.Module):
             dtype=dtype,
         )
 
-    def forward(self, x: Tensor, *, return_state: bool = False) -> Tensor | tuple[Tensor, AssociativeState]:
+    def forward(
+        self,
+        x: Tensor,
+        *,
+        return_state: bool = False,
+        position_offset: int = 0,
+    ) -> Tensor | tuple[Tensor, AssociativeState]:
         if x.ndim != 3:
             raise ValueError("forward expects shape [batch, seq, d_model]")
 
         q_gate, q_phase, k_gate, k_phase, v = self._project(x)
+        if self.position_encoding != "none":
+            positions = torch.arange(x.shape[1], device=x.device) + position_offset
+            q_phase, k_phase = self._apply_position_encoding(q_phase, k_phase, positions)
         alpha_s, alpha_z = self.transport(x.shape[:-1], device=x.device, dtype=x.dtype)
         local = local_state(k_phase, k_gate, v, alpha_s, alpha_z)
         prefix = parallel_prefix_scan(local, dim=1)
@@ -181,11 +253,18 @@ class ComposedStateMixing(nn.Module):
             return out, prefix
         return out
 
-    def step(self, x: Tensor, memory: AssociativeState | None = None) -> tuple[Tensor, AssociativeState]:
+    def step(
+        self,
+        x: Tensor,
+        memory: AssociativeState | None = None,
+        *,
+        position: int | Tensor | None = None,
+    ) -> tuple[Tensor, AssociativeState]:
         if x.ndim != 2:
             raise ValueError("step expects shape [batch, d_model]")
 
         q_gate, q_phase, k_gate, k_phase, v = self._project(x)
+        q_phase, k_phase = self._apply_position_encoding(q_phase, k_phase, position)
         alpha_s, alpha_z = self.transport(x.shape[:-1], device=x.device, dtype=x.dtype)
         current = local_state(k_phase, k_gate, v, alpha_s, alpha_z)
         if memory is None:
@@ -221,6 +300,8 @@ class ComposedStateBlock(nn.Module):
         mlp_ratio: int = 4,
         transport: bool | str = "rotary_decay",
         feature_mode: str = "complex",
+        position_encoding: str = "none",
+        rotary_base: float = 10000.0,
         eps: float = 1e-6,
     ) -> None:
         super().__init__()
@@ -233,17 +314,25 @@ class ComposedStateBlock(nn.Module):
             value_dim=value_dim,
             transport=transport,
             feature_mode=feature_mode,
+            position_encoding=position_encoding,
+            rotary_base=rotary_base,
         )
         self.norm2 = ComplexRMSNorm(d_model, eps)
         self.mlp = ComplexMLP(d_model, d_model * mlp_ratio)
 
-    def forward(self, x: Tensor) -> Tensor:
-        x = x + self.mix(self.norm1(x))
+    def forward(self, x: Tensor, *, position_offset: int = 0) -> Tensor:
+        x = x + self.mix(self.norm1(x), position_offset=position_offset)
         x = x + self.mlp(self.norm2(x))
         return x
 
-    def step(self, x: Tensor, memory: AssociativeState | None = None) -> tuple[Tensor, AssociativeState]:
-        mixed, new_memory = self.mix.step(self.norm1(x), memory)
+    def step(
+        self,
+        x: Tensor,
+        memory: AssociativeState | None = None,
+        *,
+        position: int | Tensor | None = None,
+    ) -> tuple[Tensor, AssociativeState]:
+        mixed, new_memory = self.mix.step(self.norm1(x), memory, position=position)
         x = x + mixed
         x = x + self.mlp(self.norm2(x))
         return x, new_memory

@@ -44,6 +44,8 @@ class ComposedStateLanguageModel(nn.Module):
         tie_readout_carrier: bool = False,
         transport: bool | str = "rotary_decay",
         feature_mode: str = "complex",
+        position_encoding: str = "none",
+        rotary_base: float = 10000.0,
     ) -> None:
         super().__init__()
         if readout not in {"born", "real"}:
@@ -65,6 +67,8 @@ class ComposedStateLanguageModel(nn.Module):
                     mlp_ratio=mlp_ratio,
                     transport=transport,
                     feature_mode=feature_mode,
+                    position_encoding=position_encoding,
+                    rotary_base=rotary_base,
                 )
                 for _ in range(num_layers)
             ]
@@ -92,10 +96,16 @@ class ComposedStateLanguageModel(nn.Module):
             logits = amplitudes.real
         return logits + self.logit_bias.to(device=x.device, dtype=logits.dtype)
 
-    def forward(self, input_ids: Tensor, labels: Tensor | None = None) -> ComposedStateOutput:
+    def forward(
+        self,
+        input_ids: Tensor,
+        labels: Tensor | None = None,
+        *,
+        position_offset: int = 0,
+    ) -> ComposedStateOutput:
         x = self.embed(input_ids)
         for block in self.blocks:
-            x = block(x)
+            x = block(x, position_offset=position_offset)
         x = self.norm(x)
         logits = self.logits_from_hidden(x)
 
@@ -109,8 +119,13 @@ class ComposedStateLanguageModel(nn.Module):
         self,
         input_ids: Tensor,
         memories: list[AssociativeState | None] | None = None,
+        *,
+        position: int | Tensor | None = None,
     ) -> tuple[Tensor, list[AssociativeState]]:
-        """One-token recurrent inference using the same composition law as scan."""
+        """One-token recurrent inference using the same composition law as scan.
+
+        `position` is required when RoPE position encoding is enabled.
+        """
 
         if input_ids.ndim != 1:
             raise ValueError("step expects token ids with shape [batch]")
@@ -122,7 +137,7 @@ class ComposedStateLanguageModel(nn.Module):
         x = self.embed(input_ids)
         new_memories: list[AssociativeState] = []
         for block, memory in zip(self.blocks, memories):
-            x, new_memory = block.step(x, memory)
+            x, new_memory = block.step(x, memory, position=position)
             new_memories.append(new_memory)
         x = self.norm(x)
         return self.logits_from_hidden(x), new_memories

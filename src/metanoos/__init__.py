@@ -18,7 +18,12 @@ from metanoos.corpora import (
     read_corpus_sources,
     read_corpus_text,
 )
-from metanoos.layers import ComposedStateBlock, ComposedStateMixing, TemporalTransport
+from metanoos.layers import (
+    ComposedStateBlock,
+    ComposedStateMixing,
+    TemporalTransport,
+    apply_rotary_position_encoding,
+)
 from metanoos.model import ComposedStateLanguageModel, ComposedStateOutput, real_parameter_count
 from metanoos.state import (
     AssociativeState,
@@ -48,6 +53,7 @@ __all__ = [
     "StateMemoryEstimate",
     "TemporalTransport",
     "ablation_model_kwargs",
+    "apply_rotary_position_encoding",
     "available_ablations",
     "available_corpora",
     "compose",

@@ -158,6 +158,94 @@ peak CUDA memory, fixed-prompt samples.
 **Rule:** Treat one seed as smoke evidence only; require repeated seeds before
 claiming ablation effects.
 
+**Upcoming cloud runs - RoPE/transport matrix:** Run synthetic order probes
+before spending CUDA on longer byte-LM comparisons.
+
+| Arm | Preset | Position phase | Transport | Question |
+| --- | --- | --- | --- | --- |
+| A | `complex_linear_attention` | none | none | Can pure causal prefix composition recover order? |
+| B | `complex_rotary_gla` | none | learned per-head rotary decay | Does learned transport supply temporal phase by itself? |
+| C | `complex_rope_decay_gla` | fixed RoPE | real positive decay | Is fixed q/k relative phase sufficient? |
+| D | `complex_rope_rotary_gla` | fixed RoPE | learned per-head rotary decay | Does learned rotation add a correction over RoPE? |
+
+Synthetic permutation sweep:
+
+```bash
+for seed in 0 1 2; do
+  python3 scripts/run_order_sweep.py \
+    --device cuda \
+    --task permutation \
+    --seed "$seed" \
+    --seq-len 128 \
+    --steps 1000 \
+    --batch-size 128 \
+    --eval-batches 50 \
+    --log-interval 100 \
+    --d-model 64 \
+    --num-layers 2 \
+    --num-heads 4 \
+    --output "runs/order-permutation-seed${seed}.json"
+done
+```
+
+Synthetic span-copy sweep:
+
+```bash
+for seed in 0 1 2; do
+  python3 scripts/run_order_sweep.py \
+    --device cuda \
+    --task span_copy \
+    --seed "$seed" \
+    --seq-len 128 \
+    --steps 1500 \
+    --batch-size 128 \
+    --eval-batches 50 \
+    --log-interval 100 \
+    --d-model 64 \
+    --num-layers 2 \
+    --num-heads 4 \
+    --output "runs/order-span-copy-seed${seed}.json"
+done
+```
+
+Tiny byte-LM follow-up, only after the synthetic tasks separate arms or show a
+surprising null:
+
+```bash
+for seed in 0 1 2; do
+  for preset in \
+    complex_linear_attention \
+    complex_rotary_gla \
+    complex_rope_decay_gla \
+    complex_rope_rotary_gla; do
+    python3 scripts/run_ablation.py \
+      --device cuda \
+      --require-cuda \
+      --corpus greek_classics \
+      --preset "$preset" \
+      --seed "$seed" \
+      --d-model 128 \
+      --num-layers 2 \
+      --num-heads 4 \
+      --seq-len 128 \
+      --batch-size 16 \
+      --steps 10000 \
+      --val-batches 20 \
+      --eval-interval 500 \
+      --log-interval 100 \
+      --checkpoint-interval 1000 \
+      --sample-tokens 120 \
+      --output-dir runs
+  done
+done
+```
+
+RoPE/transport diagnostics: synthetic eval accuracy/loss, convergence speed,
+seed stability, `phase`, `radius_s`, and `alpha_z`. If
+`complex_rope_decay_gla` matches `complex_rope_rotary_gla`, learned rotation is
+probably redundant at this scale. If `complex_rope_rotary_gla` wins while phase
+moves coherently, learned transport is adding a correction over fixed RoPE.
+
 ### Experiment 008 - 2026-04-24 - External Baselines
 
 **Status:** TODO.

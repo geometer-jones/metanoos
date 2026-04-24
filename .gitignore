@@ -23,6 +23,7 @@ env/
 .env.*
 .codex
 .codex/
+.claude/
 
 # Generated experiment outputs and model checkpoints
 runs/

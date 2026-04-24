@@ -37,6 +37,8 @@ Implemented presets:
 - `complex_rotary_gla`: default complex GLA with per-head complex decay.
 - `complex_decay_gla`: removes transport phase rotation.
 - `complex_linear_attention`: removes temporal decay.
+- `complex_rope_decay_gla`: fixed RoPE q/k phase with real content decay.
+- `complex_rope_rotary_gla`: fixed RoPE q/k phase plus learned rotary decay.
 - `magnitude_feature_gla`: removes q/k phase features.
 - `real_readout_gla`: replaces Born logits with real-part logits.
 
@@ -50,6 +52,13 @@ model = ComposedStateLanguageModel(
     num_heads=4,
     **ablation_model_kwargs("complex_decay_gla"),
 )
+```
+
+For quick order-sensitivity probes, the RoPE/transport matrix can be run on
+synthetic tasks:
+
+```bash
+python3 scripts/run_order_sweep.py --task permutation
 ```
 
 External comparisons should include real-valued GLA and diagonal real/complex

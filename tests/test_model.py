@@ -5,6 +5,7 @@ from metanoos import (
     ComposedStateLanguageModel,
     ComposedStateMixing,
     ablation_model_kwargs,
+    apply_rotary_position_encoding,
     available_ablations,
     phase_feature,
     positive_gate,
@@ -58,12 +59,53 @@ def test_mixing_supports_separate_key_value_dims() -> None:
     torch.testing.assert_close(full, recurrent, rtol=1e-5, atol=1e-5)
 
 
+def test_rope_preserves_phase_feature_magnitude() -> None:
+    torch.manual_seed(0)
+    x = torch.randn(2, 5, 3, 4, dtype=torch.cfloat)
+    positions = torch.arange(x.shape[1])
+
+    encoded = apply_rotary_position_encoding(x, positions)
+
+    assert encoded.is_complex()
+    torch.testing.assert_close(encoded.abs(), x.abs(), rtol=1e-6, atol=1e-6)
+
+
+def test_mixing_rope_scan_matches_step_with_position_offset() -> None:
+    torch.manual_seed(0)
+    layer = ComposedStateMixing(d_model=8, num_heads=2, position_encoding="rope")
+    x = torch.randn(2, 5, 8, dtype=torch.cfloat)
+    position_offset = 7
+
+    full = layer(x, position_offset=position_offset)
+    memory = None
+    stepped = []
+    for index in range(x.shape[1]):
+        y, memory = layer.step(x[:, index], memory, position=position_offset + index)
+        stepped.append(y)
+    recurrent = torch.stack(stepped, dim=1)
+
+    torch.testing.assert_close(full, recurrent, rtol=1e-5, atol=1e-5)
+
+
+def test_rope_step_requires_position() -> None:
+    layer = ComposedStateMixing(d_model=8, num_heads=2, position_encoding="rope")
+    x = torch.randn(2, 8, dtype=torch.cfloat)
+
+    with pytest.raises(ValueError, match="position is required"):
+        layer.step(x)
+
+
 def test_head_dim_must_match_explicit_key_value_dims() -> None:
     with pytest.raises(ValueError, match="key_dim must match head_dim"):
         ComposedStateMixing(d_model=8, num_heads=2, head_dim=4, key_dim=3)
 
     with pytest.raises(ValueError, match="value_dim must match head_dim"):
         ComposedStateMixing(d_model=8, num_heads=2, head_dim=4, value_dim=3)
+
+
+def test_position_encoding_must_be_known() -> None:
+    with pytest.raises(ValueError, match="position_encoding must be one of"):
+        ComposedStateMixing(d_model=8, num_heads=2, position_encoding="learned")
 
 
 @pytest.mark.parametrize("transport", ["rotary_decay", "decay", "none"])
@@ -113,11 +155,37 @@ def test_language_model_scan_matches_step() -> None:
     torch.testing.assert_close(full, recurrent, rtol=1e-5, atol=1e-5)
 
 
+def test_language_model_rope_scan_matches_step_with_positions() -> None:
+    torch.manual_seed(0)
+    model = ComposedStateLanguageModel(
+        vocab_size=13,
+        d_model=8,
+        num_layers=2,
+        num_heads=2,
+        position_encoding="rope",
+    )
+    input_ids = torch.randint(0, 13, (2, 5))
+    position_offset = 3
+
+    full = model(input_ids, position_offset=position_offset).logits
+    memories = None
+    stepped = []
+    for index in range(input_ids.shape[1]):
+        logits, memories = model.step(input_ids[:, index], memories, position=position_offset + index)
+        stepped.append(logits)
+    recurrent = torch.stack(stepped, dim=1)
+
+    assert not full.is_complex()
+    torch.testing.assert_close(full, recurrent, rtol=1e-5, atol=1e-5)
+
+
 def test_named_ablation_presets_instantiate() -> None:
     names = [spec.name for spec in available_ablations()]
     assert names == [
         "complex_decay_gla",
         "complex_linear_attention",
+        "complex_rope_decay_gla",
+        "complex_rope_rotary_gla",
         "complex_rotary_gla",
         "magnitude_feature_gla",
         "real_readout_gla",
