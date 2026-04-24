@@ -1,16 +1,17 @@
 # Architecture
 
-This repository studies a complex-valued sequence architecture whose primitive
-is not attention, but associative state composition.
+This repository studies a complex-valued sequence architecture in the
+diagonal linear-attention / diagonal SSM family. A per-head complex pole
+transports a rank-1 content update, alongside a separately transported real
+normalizer. The recurrence is equivalent to a complex GLA with a per-head
+scalar decay.
 
-Attention treats sequence positions as objects with intrinsic pairwise
-similarities, then normalizes those similarities into weights. This architecture
-treats sequence positions as generators of a composed relational state: a
-monoid element that serves as a sufficient statistic from which later positions
-extract readouts through normalized projection.
-
-The prefix state is not an approximation to an attention matrix. It is a
-different mathematical species.
+The presentation organizes this recurrence as an associative monoid. That
+framing is a contribution to clarity, not to the mathematical object class:
+it makes scan/recurrence equivalence a named structural property, it makes
+the identity and composition law explicit, and it supports clean
+immediate-neighbor ablations against transport, feature, and readout
+choices.
 
 ## System Purpose
 
@@ -25,10 +26,9 @@ The core question is:
 
 The prefix state is an element of a monoid under chronological composition.
 The identity element is `(1, 1, 0, 0)`. Associativity is the monoid law that
-makes the prefix state well-defined independent of evaluation order, that
-guarantees equivalence between full-sequence training and one-step inference,
-and that makes the scan a genuine mathematical primitive rather than an
-implementation convenience.
+makes the prefix state well-defined independent of evaluation order and that
+guarantees equivalence between the full-sequence scan and one-step
+recurrent inference: both are evaluations of the same composition law.
 
 The phase split is the content of the primitive. The monoid law is its form.
 
@@ -227,62 +227,27 @@ state.
 
 ## Rotational Memory
 
-Rotational memory is the empirical consequence of the two-channel transport
-split. Whereas scalar decay only weakens the past, complex `alpha_S` makes
-time a source of curvature: older evidence may arrive at the readout in a
-different phase relationship to newer evidence, producing interference.
+The current implementation parameterizes `alpha_S` with a single learned
+angle per head plus a learned log-magnitude, initialized at angle zero. Every
+head therefore has one rotational frequency shared across all state
+dimensions, and at initialization the rotational channel is indistinguishable
+from real decay. The comparison this actually supports is
+`complex_rotary_gla` vs `complex_decay_gla`: does any single-frequency
+rotation per head help, once decay is accounted for?
 
-The open research questions:
+The richer hypothesis — that per-dimension complex poles encode useful order
+structure, that phase curvature separates overlapping memories, or that
+destructive interference improves compression — requires giving each state
+dimension its own pole, as in S4D-Diag or LRU. That generalization is future
+work; the present implementation cannot distinguish its predictions from
+those of one-angle-per-head rotation.
 
-- Does temporal rotation encode useful order structure?
-- Does phase curvature help separate overlapping memories?
-- Does destructive interference improve compression?
-- Or does rotational memory destroy information that ordinary sequence tasks
-  need preserved?
+## Readout
 
-## Gauge Structure And Readout
-
-The final vocabulary readout treats complex amplitudes as measurable quantities.
-
-For vocabulary carrier `e_v`, the amplitude for token `v` is:
-
-```text
-a_v = <x_t, e_v>
-```
-
-The default measurement is the Born rule on the amplitude:
-
-```text
-logit_v = |a_v|^2
-```
-
-This readout is invariant under global U(1) phase rotation of `x_t`. The
-observable output depends on relative phase structure, not absolute phase.
-
-That invariance is not decorative. It defines a gauge freedom:
-
-```text
-x_t -> exp(i theta) x_t
-```
-
-under which Born-rule logits remain unchanged.
-
-This invariance does not extend to the prefix state. The phase structure of
-the composed state carries genuine rotational content that affects the
-intermediate projection `y_t = S q_phase / (<Z, q_gate> + eps)`. Only the
-final vocabulary readout is phase-invariant; the prefix state itself is not
-gauge-equivalent to a phase-rotated copy, and the rotational channel is not
-gauge-redundant.
-
-An alternate real readout,
-
-```text
-logit_v = Re(a_v)
-```
-
-breaks that invariance and exposes absolute phase sensitivity. It is therefore a
-useful comparison point, but it is not the natural measurement for the
-relational-state ontology.
+The default vocabulary readout is `logit_v = |<x_t, e_v>|^2`, which is
+invariant under global phase rotation of `x_t` because `|.|^2` always is.
+The `real_readout_gla` ablation replaces this with `Re(<x_t, e_v>)`, which
+is not phase-invariant and is a useful comparison point.
 
 ## Block Dynamics
 
@@ -332,10 +297,12 @@ y_t = measure(P_t, q_t)
 Its ontology is generative and relational: positions deposit contributions into
 a causal state, and queries measure that state.
 
-Attention can be used as a baseline, but it should not be treated as the parent
-object. The prefix state is not a low-rank attention matrix, a softmax
-approximation, or a computational trick for attention. It is the object being
-studied.
+The prefix state here is a rank-1 recurrent accumulator with a per-head
+complex pole and a real normalizer — a familiar structural choice in the
+kernelized linear-attention and diagonal SSM families. The testbed's
+contribution is the explicit associative-composition framing, which makes
+immediate-neighbor ablations against transport, feature, and readout
+cleanly separable.
 
 ## Mathematical Flow
 
@@ -373,10 +340,11 @@ The architecture is organized around these invariants:
   the same law.
 - **Real relevance:** support and normalization are nonnegative real quantities.
 - **Complex content:** relational memory retains phase-bearing amplitudes.
-- **Rotational transport:** old content may rotate as well as attenuate.
-- **Interference:** equal support can still produce cancellation or
-  reinforcement.
-- **Gauge freedom:** Born-style output depends on relative, not absolute, phase.
+- **Rotational transport:** in principle old content may rotate as well as
+  attenuate. The current parameterization gives each head one rotation angle
+  shared across state dimensions, initialized at zero; see Rotational Memory.
+- **Phase-invariant default readout:** `|.|^2` logits are invariant under
+  global phase rotation of the hidden state.
 
 ## Research Boundary
 
@@ -388,7 +356,7 @@ The important boundary is between:
 - the **experiments**, which ask whether that primitive produces useful sequence
   behavior.
 
-New work should preserve this boundary. Changes to the primitive should clarify
-or test the composition law, the transport factors, the measurement, or the
-gauge structure. Changes to tasks and baselines should remain evidence about the
-primitive, not replacements for the primitive itself.
+New work should preserve this boundary. Changes to the primitive should
+clarify or test the composition law, the transport factors, the measurement,
+or the readout. Changes to tasks and baselines should remain evidence about
+the primitive, not replacements for the primitive itself.
