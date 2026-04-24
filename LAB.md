@@ -1,316 +1,200 @@
 # Lab Notebook
 
-This file is the running experimentation notebook for Metanoos. Every entry is
-numbered and dated. Keep entries factual: hypothesis, setup, command or code
-path, expected evidence, and result/status.
+Chronological experiment log for Metanoos. Lower numbers are older and appear
+earlier. Keep entries to the information needed to reproduce or interpret
+results.
 
-TODO experiments are kept at the top. Recorded experiments are reverse
-chronological by experiment number: newest at top, oldest at bottom.
+## Recorded
 
-## TODO - Experiments To Run
+### Experiment 001 - 2026-04-24 - Core State Algebra
 
-### Experiment 008 - 2026-04-24 - 50M Layout Sweep
+**Status:** Implemented.
 
-**Purpose:** Compare depth, width, key/value state size, and MLP expansion at
-roughly 50M real-valued parameters.
+**Purpose:** Verify the associative state algebra before trusting training
+comparisons.
 
-**Status:** TODO. Implementation support now exists for tied input/output
-carrier weights, separate `d_k` / `d_v` dimensions, real-valued parameter
-counts, and prefix-state memory estimates. CUDA layout runs are still pending.
+**Scope:** `src/metanoos/state.py`, `tests/test_state.py`
 
-**Budget convention:**
+**Command:** `python3 -m pytest tests/test_state.py`
 
-- Count each complex parameter as two real-valued parameters.
-- Target approximately 50M real-valued parameters.
-- Assume tied input embedding and output unembedding for the Born readout.
-- Initial vocabulary assumption: 8k subwords. Recompute if using 16k or larger.
-- Constructor `key_dim` and `value_dim` are per-head dimensions. Table `d_k`
-  and `d_v` values are aggregate dimensions across heads.
+**Checks:** associativity, identity, serial/recurrent prefix equivalence,
+parallel scan equivalence, measurement shape/type, CUDA backward when available.
 
-**Implementation support:**
+### Experiment 002 - 2026-04-24 - Scan/Step Equivalence
 
-- `tie_readout_carrier=True` ties `embed.weight` and the Born readout carrier.
-- `key_dim` and `value_dim` split the former single `head_dim`.
-- `model.real_param_count()` reports real-valued parameter count.
-- `state_memory_estimate(...)` estimates prefix state size:
-  `batch * heads * value_dim * key_dim * seq_len` complex elements for `S`.
+**Status:** Implemented.
 
-**Layout candidates:**
+**Purpose:** Verify full-sequence training and one-token inference use the same
+recurrence.
 
-| Layout | `d_model` | Layers | `d_k` | `d_v` | MLP ratio | Emb. params at V=8k | Block params | Total approx. | Hypothesis |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| A - Balanced baseline | 512 | 6 | 512 | 512 | 4 | 8.4M | 39.3M | 47.7M | Standard deep-ish starting point |
-| B - Wide and shallow | 768 | 3 | 768 | 768 | 4 | 12.3M | 31.7M | 44.0M | Tests single-step richness vs depth |
-| C - Deep and narrow | 384 | 12 | 384 | 384 | 4 | 6.1M | 44.2M | 50.3M | Tests whether rotational memory benefits from many layers |
-| D - Bottleneck state | 512 | 6 | 256 | 512 | 4 | 8.4M | 30.1M | 38.5M | Tests low-rank relational state and longer-context efficiency |
-| E - Extra-wide MLP | 512 | 5 | 512 | 512 | 6 | 8.4M | 40.9M | 49.3M | Tests whether local per-token compute is the bottleneck |
+**Scope:** `src/metanoos/layers.py`, `src/metanoos/model.py`,
+`tests/test_model.py`
 
-**Recommended order:**
+**Command:** `python3 -m pytest tests/test_model.py`
 
-1. Run Layout A first to validate the CUDA training pipeline.
-2. Compare Layout B vs Layout C for depth/width tradeoff.
-3. Run Layout D if sequence length or batch size is constrained by `S` memory.
-4. Run Layout E if losses suggest the scan is not the bottleneck and more local
-   processing may help.
+**Checks:** mixer scan matches repeated `step`, language-model logits match
+repeated `step`, and ablation transport/feature modes preserve equivalence.
 
-**Primary comparisons:**
+### Experiment 003 - 2026-04-24 - Ablation Registry
 
-- A vs B: depth vs width at similar scale.
-- B vs C: single-step capacity vs many transport/composition layers.
-- A vs D: full key state vs bottleneck key state.
-- A vs E: associative scan capacity vs local MLP capacity.
+**Status:** Implemented.
 
-**Metrics:**
+**Purpose:** Make immediate-neighbor GLA ablations reproducible by name.
 
-- validation loss and bpc;
-- train loss curve and stability;
-- tokens per second;
-- peak GPU memory;
-- parameter count in real-valued terms;
-- sample quality at fixed prompts.
+**Scope:** `src/metanoos/ablations.py`, `tests/test_model.py`
 
-**Acceptance rule:** Layout comparisons only make sense after the ablation arms
-from Experiment 006 are runnable on CUDA. Do not mix conclusions from different
-vocabularies or tokenizers without recomputing parameter budgets.
+| Preset | Isolation |
+| --- | --- |
+| `complex_rotary_gla` | default |
+| `complex_decay_gla` | phase rotation |
+| `complex_linear_attention` | temporal decay |
+| `magnitude_feature_gla` | q/k phase features |
+| `real_readout_gla` | Born readout |
 
-### Experiment 007 - 2026-04-24 - External Baselines
+**Command:** `python3 -m pytest tests/test_model.py -k ablation`
 
-**Purpose:** Keep the comparison set honest by adding neighbors outside this
-implementation.
+### Experiment 004 - 2026-04-24 - Readout And Optimizer Safety
 
-**Status:** TODO.
+**Status:** Implemented.
 
-**Baselines to add or import:**
+**Purpose:** Verify real logits/loss, Born global-phase invariance, AdamW
+compatibility with complex gradients, and CUDA forward/backward when available.
 
-- real-valued GLA with matched parameter count;
-- real-valued causal linear attention without decay;
-- diagonal real SSM with matched state size;
-- diagonal complex SSM or S4D-style model if available.
+**Scope:** `src/metanoos/model.py`, `tests/test_model.py`
 
-**Primary requirement:** Baselines must use the same data split, tokenizer,
-optimizer budget, logging schema, and evaluation metrics as the internal
-ablation sweep.
+**Command:**
+`python3 -m pytest tests/test_model.py -k "readout or adamw or cuda or outputs"`
 
-### Experiment 006 - 2026-04-24 - CUDA Ablation Sweep
+### Experiment 005 - 2026-04-24 - Training Device Suitability
 
-**Purpose:** Compare the default complex rotational GLA against its immediate
-neighbors under matched training conditions.
+**Status:** Recorded.
 
-**Status:** TODO. Run on a CUDA machine.
+**Purpose:** Decide which accelerator backend is valid for real ablation
+training.
 
-**Fixed settings:**
+**Probe:** `torch.cuda.is_available()`, `torch.cuda.device_count()`,
+`torch.backends.mps.is_available()`, plus complex backward on MPS.
 
-- corpus: `greek_classics` initially, then repeat on other bundled corpora;
-- tokenization: UTF-8 bytes;
-- seed: same seed across all runs;
-- model scale: same `d_model`, `num_layers`, `num_heads`, `mlp_ratio`;
-- optimizer: AdamW with same LR, betas, and weight decay;
-- batch shape: same `batch_size` and `seq_len`;
-- validation: same held-out split and `val_batches`;
-- logging: write `metadata.json`, `metrics.jsonl`, `summary.json`.
+**Result:** Prior local machine had MPS but no CUDA. MPS forward completed, but
+backward failed in PyTorch's complex tensor path.
 
-**Run matrix:**
+**Conclusion:** Real ablation runs require CUDA. CPU is for smoke/correctness
+only.
 
-| Experiment arm | Preset | Primary comparison |
+### Experiment 006 - 2026-04-24 - Byte-Level Runner Smoke
+
+**Status:** Implemented smoke check. Not architectural evidence.
+
+**Purpose:** Verify `scripts/run_ablation.py` can train, evaluate, log metrics,
+write summaries, generate samples, and report CUDA memory.
+
+**Command:**
+
+```bash
+python3 scripts/run_ablation.py \
+  --device cuda \
+  --require-cuda \
+  --corpus greek_classics \
+  --preset complex_rotary_gla \
+  --seed 0 \
+  --d-model 16 \
+  --num-layers 1 \
+  --num-heads 2 \
+  --seq-len 16 \
+  --batch-size 2 \
+  --steps 2 \
+  --val-batches 1 \
+  --eval-interval 1 \
+  --log-interval 1 \
+  --max-tokens 2000 \
+  --sample-tokens 8 \
+  --output-dir /tmp/metanoos-runs
+```
+
+**Result:** `best_val_loss=6.867833614349365`,
+`best_val_bpb=9.908189497072355`, `final_train_loss=6.860815525054932`,
+`peak_cuda_memory_bytes=17954304`, `real_parameter_count=23190`.
+
+## In Progress
+
+### Experiment 007 - 2026-04-24 - CUDA Ablation Sweep
+
+**Status:** Seed-0 500-step sweep complete. Longer runs and repeated seeds are
+pending before making architectural claims.
+
+**Purpose:** Compare default complex rotational GLA against immediate neighbors
+under matched training conditions.
+
+**Fixed settings:** `greek_classics` first, UTF-8 bytes, shared seed/model
+scale/optimizer/batch shape/validation budget/logging schema.
+
+| Arm | Preset | Comparison |
 | --- | --- | --- |
-| A | `complex_rotary_gla` | Default |
+| A | `complex_rotary_gla` | default |
 | B | `complex_decay_gla` | A vs B isolates phase rotation |
 | C | `complex_linear_attention` | A/B vs C isolates temporal decay |
 | D | `magnitude_feature_gla` | A vs D isolates q/k phase features |
 | E | `real_readout_gla` | A vs E isolates Born readout |
 
-**Primary metrics:**
+**Seed-0 500-step result:**
 
-- validation loss;
-- validation bits per byte/character where applicable;
-- train loss curve;
-- tokens per second;
-- gradient norm stability;
-- sample quality snapshots at fixed prompts.
+| Preset | Best val loss | Best val bpb | Final train loss | Peak CUDA memory |
+| --- | ---: | ---: | ---: | ---: |
+| `real_readout_gla` | 2.2738 | 3.2804 | 2.2835 | 12.83 GB |
+| `magnitude_feature_gla` | 2.3810 | 3.4351 | 2.4030 | 12.63 GB |
+| `complex_rotary_gla` | 2.3907 | 3.4490 | 2.4364 | 12.83 GB |
+| `complex_decay_gla` | 2.4165 | 3.4863 | 2.4520 | 12.83 GB |
+| `complex_linear_attention` | 2.4805 | 3.5787 | 2.5226 | 3.41 GB |
 
-**Acceptance rule:** No architectural claim should be made from one run. Treat
-single-seed results as smoke evidence. Require repeated seeds before claiming an
-ablation effect.
+**Run dirs:** `runs/20260424T192218Z-greek_classics-complex_rotary_gla-seed0`,
+`runs/20260424T193451Z-greek_classics-complex_decay_gla-seed0`,
+`runs/20260424T194728Z-greek_classics-complex_linear_attention-seed0`,
+`runs/20260424T195701Z-greek_classics-magnitude_feature_gla-seed0`,
+`runs/20260424T201027Z-greek_classics-real_readout_gla-seed0`.
 
-## Recorded Experiments
+**Metrics:** validation loss/bpb, train loss curve, tokens/sec, gradient norm,
+peak CUDA memory, fixed-prompt samples.
 
-### Experiment 005 - 2026-04-24 - Device Suitability For Ablation Training
+**Rule:** Treat one seed as smoke evidence only; require repeated seeds before
+claiming ablation effects.
 
-**Purpose:** Determine which accelerator backend is valid for real ablation
-training.
+### Experiment 008 - 2026-04-24 - External Baselines
 
-**Probe:**
+**Status:** TODO.
 
-```bash
-python3 - <<'PY'
-import torch
+**Purpose:** Add comparison models outside this implementation.
 
-print("torch", torch.__version__)
-print("cuda_available", torch.cuda.is_available())
-print("cuda_device_count", torch.cuda.device_count())
-print("mps_available", torch.backends.mps.is_available())
-PY
-```
-
-**Observed on 2026-04-24 local machine:**
-
-```text
-torch 2.6.0
-cuda_available False
-cuda_device_count 0
-mps_available True
-```
-
-**MPS backward probe result:** MPS forward completed, but backward failed in
-PyTorch's complex tensor path. Therefore MPS is not a valid training backend for
-these ablations.
-
-**Conclusion:** Real ablation runs should be on CUDA. CPU is acceptable for
-smoke tests and correctness tests only.
-
-**Status:** Local machine blocked for GPU ablation training because CUDA is not
+**Baselines:** matched real-valued GLA, real-valued causal linear attention
+without decay, diagonal real SSM, and diagonal complex SSM or S4D-style model if
 available.
 
-### Experiment 004 - 2026-04-24 - Readout And Optimizer Safety
+**Rule:** Use the same split, tokenizer, optimizer budget, logging schema, and
+metrics as Experiment 007.
 
-**Purpose:** Verify that the vocabulary readout is usable with PyTorch
-autograd/optimizers and that the Born readout keeps the intended global phase
-invariance.
+### Experiment 009 - 2026-04-24 - 50M Layout Sweep
 
-**Files:**
+**Status:** TODO. Requires Experiment 007 first.
 
-- `src/metanoos/model.py`
-- `tests/test_model.py`
+**Purpose:** Compare depth, width, key/value state size, and MLP expansion near
+50M real-valued parameters.
 
-**Tests:**
+**Budget:** complex params count as two real params; assume tied Born
+embedding/readout; initial vocabulary assumption is 8k subwords; `key_dim` and
+`value_dim` are per-head constructor values.
 
-- `test_language_model_outputs_real_logits_and_loss`
-- `test_born_readout_is_global_phase_invariant`
-- `test_language_model_adamw_step_handles_complex_readout_gradients`
-- `test_language_model_cuda_forward_backward`
+| Layout | `d_model` | Layers | `d_k` | `d_v` | MLP | Total approx. | Hypothesis |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| A | 512 | 6 | 512 | 512 | 4 | 47.7M | balanced baseline |
+| B | 768 | 3 | 768 | 768 | 4 | 44.0M | width vs depth |
+| C | 384 | 12 | 384 | 384 | 4 | 50.3M | many rotational layers |
+| D | 512 | 6 | 256 | 512 | 4 | 38.5M | bottleneck key state |
+| E | 512 | 5 | 512 | 512 | 6 | 49.3M | wider local MLP |
 
-**Command:**
+**Order:** A first, then B vs C, then D if memory-constrained, then E if local
+compute looks limiting.
 
-```bash
-python3 -m pytest tests/test_model.py -k "readout or adamw or cuda or outputs"
-```
+**Metrics:** validation loss/bpc, train stability, tokens/sec, peak CUDA memory,
+real parameter count, fixed-prompt samples.
 
-**Expected evidence:**
-
-- Language model logits are real-valued.
-- Loss is finite.
-- Born logits are invariant under global hidden-state phase rotation.
-- Complex readout gradients are physical tensors accepted by AdamW.
-- CUDA forward/backward works when CUDA is available.
-
-**Status:** Implemented. CUDA-specific test is skipped on machines without
-CUDA.
-
-### Experiment 003 - 2026-04-24 - Immediate-Neighbor Ablation Registry
-
-**Purpose:** Make the nearest GLA-family ablations explicit and reproducible
-from names rather than ad hoc keyword arguments.
-
-**Files:**
-
-- `src/metanoos/ablations.py`
-- `tests/test_model.py`
-
-**Ablations:**
-
-| Name | Transport | q/k features | Readout | Question |
-| --- | --- | --- | --- | --- |
-| `complex_rotary_gla` | complex decay | complex phase | Born | Default model |
-| `complex_decay_gla` | real decay | complex phase | Born | Does rotation help? |
-| `complex_linear_attention` | none | complex phase | Born | Does decay help? |
-| `magnitude_feature_gla` | complex decay | magnitude-only | Born | Do q/k phases help? |
-| `real_readout_gla` | complex decay | complex phase | real part | Does Born readout help? |
-
-**Tests:**
-
-- `test_named_ablation_presets_instantiate`
-- `test_ablation_kwargs_allow_overrides`
-
-**Command:**
-
-```bash
-python3 -m pytest tests/test_model.py -k ablation
-```
-
-**Expected evidence:**
-
-- Every named preset instantiates a language model.
-- Every preset produces real logits with the expected shape.
-- Preset kwargs can be overridden by experiment code.
-
-**Status:** Implemented.
-
-### Experiment 002 - 2026-04-24 - Model-Level Scan/Step Equivalence
-
-**Purpose:** Verify that full-sequence training and one-token inference evaluate
-the same recurrence at the layer and language-model levels.
-
-**Files:**
-
-- `src/metanoos/layers.py`
-- `src/metanoos/model.py`
-- `tests/test_model.py`
-
-**Tests:**
-
-- `test_mixing_scan_matches_step`
-- `test_language_model_scan_matches_step`
-- `test_mixing_ablation_modes_scan_match_step`
-
-**Command:**
-
-```bash
-python3 -m pytest tests/test_model.py
-```
-
-**Expected evidence:**
-
-- `ComposedStateMixing.forward(...)` matches repeated `step(...)`.
-- `ComposedStateLanguageModel.forward(...)` logits match repeated
-  `step(...)` logits.
-- Equivalence holds for all implemented transport and q/k feature ablation
-  modes.
-
-**Status:** Implemented.
-
-### Experiment 001 - 2026-04-24 - Core Associative State Tests
-
-**Purpose:** Verify that the complex GLA state algebra is well formed before
-training comparisons are trusted.
-
-**Files:**
-
-- `src/metanoos/state.py`
-- `tests/test_state.py`
-
-**Tests:**
-
-- `test_composition_is_associative`
-- `test_identity_is_neutral`
-- `test_prefix_scan_matches_recurrent_composition`
-- `test_parallel_prefix_scan_matches_serial_reference`
-- `test_measurement_uses_real_positive_support`
-- `test_parallel_prefix_scan_cuda_backward`
-
-**Command:**
-
-```bash
-python3 -m pytest tests/test_state.py
-```
-
-**Expected evidence:**
-
-- Associative grouping produces the same state.
-- Identity state is neutral on both sides.
-- Serial prefix scan matches recurrent stepping.
-- Parallel scan matches the serial reference.
-- Measurement returns complex values with real positive support.
-- CUDA backward works when CUDA is available.
-
-**Status:** Implemented. CUDA-specific test is skipped on machines without
-CUDA.
+**Rule:** Do not compare layouts across different vocabularies/tokenizers
+without recomputing budgets.

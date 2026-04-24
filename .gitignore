@@ -21,6 +21,8 @@ venv/
 env/
 .env
 .env.*
+.codex
+.codex/
 
 # Generated experiment outputs and model checkpoints
 runs/
