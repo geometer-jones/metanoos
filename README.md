@@ -26,9 +26,14 @@ The package keeps the primitive separate from model blocks:
 
 - `metanoos.state`: associative state, composition, causal scan, measurement.
 - `metanoos.complex_ops`: complex gates, phase features, normalization, layers.
-- `metanoos.layers`: composed-state sequence mixer and residual block.
+- `metanoos.layers`: reciprocation sequence mixer and residual block.
 - `metanoos.model`: language-model wrapper with Born-style vocabulary readout.
 - `metanoos.ablations`: named immediate-neighbor ablation presets.
+
+The trainable sequence-mixing block is called reciprocation: positions deposit
+complex relational content into a composed prefix state, and later positions
+measure a normalized response from that state. The original `ComposedState*`
+class names remain available as compatibility aliases.
 
 ## Ablations
 
@@ -43,9 +48,9 @@ Implemented presets:
 - `real_readout_gla`: replaces Born logits with real-part logits.
 
 ```python
-from metanoos import ComposedStateLanguageModel, ablation_model_kwargs
+from metanoos import ReciprocationLanguageModel, ablation_model_kwargs
 
-model = ComposedStateLanguageModel(
+model = ReciprocationLanguageModel(
     vocab_size=128,
     d_model=64,
     num_layers=2,
@@ -67,9 +72,9 @@ SSM baselines with matched parameter and compute budgets.
 ## Experiment Sizing
 
 ```python
-from metanoos import ComposedStateLanguageModel, state_memory_estimate
+from metanoos import ReciprocationLanguageModel, state_memory_estimate
 
-model = ComposedStateLanguageModel(
+model = ReciprocationLanguageModel(
     vocab_size=8000,
     d_model=512,
     num_layers=6,
@@ -96,9 +101,9 @@ print(estimate.S_bytes, estimate.total_bytes)
 ```python
 import torch
 
-from metanoos import ComposedStateLanguageModel
+from metanoos import ReciprocationLanguageModel
 
-model = ComposedStateLanguageModel(
+model = ReciprocationLanguageModel(
     vocab_size=128,
     d_model=64,
     num_layers=2,

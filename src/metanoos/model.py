@@ -1,4 +1,4 @@
-"""Language-model wrapper for composed-state sequence blocks."""
+"""Language-model wrapper for reciprocation sequence blocks."""
 
 from __future__ import annotations
 
@@ -9,12 +9,12 @@ from torch import Tensor, nn
 from torch.nn import functional as F
 
 from metanoos.complex_ops import ComplexEmbedding, ComplexRMSNorm
-from metanoos.layers import ComposedStateBlock
+from metanoos.layers import ReciprocationBlock
 from metanoos.state import AssociativeState
 
 
 @dataclass(frozen=True)
-class ComposedStateOutput:
+class ReciprocationOutput:
     logits: Tensor
     loss: Tensor | None = None
     hidden_states: Tensor | None = None
@@ -26,7 +26,7 @@ def real_parameter_count(module: nn.Module) -> int:
     return sum(parameter.numel() * (2 if parameter.is_complex() else 1) for parameter in module.parameters())
 
 
-class ComposedStateLanguageModel(nn.Module):
+class ReciprocationLanguageModel(nn.Module):
     """Token model with complex hidden states and gauge-aware vocabulary readout."""
 
     def __init__(
@@ -58,7 +58,7 @@ class ComposedStateLanguageModel(nn.Module):
         self.embed = ComplexEmbedding(vocab_size, d_model)
         self.blocks = nn.ModuleList(
             [
-                ComposedStateBlock(
+                ReciprocationBlock(
                     d_model,
                     num_heads=num_heads,
                     head_dim=head_dim,
@@ -102,7 +102,7 @@ class ComposedStateLanguageModel(nn.Module):
         labels: Tensor | None = None,
         *,
         position_offset: int = 0,
-    ) -> ComposedStateOutput:
+    ) -> ReciprocationOutput:
         x = self.embed(input_ids)
         for block in self.blocks:
             x = block(x, position_offset=position_offset)
@@ -112,7 +112,7 @@ class ComposedStateLanguageModel(nn.Module):
         loss = None
         if labels is not None:
             loss = F.cross_entropy(logits.reshape(-1, self.vocab_size), labels.reshape(-1))
-        return ComposedStateOutput(logits=logits, loss=loss, hidden_states=x)
+        return ReciprocationOutput(logits=logits, loss=loss, hidden_states=x)
 
     @torch.no_grad()
     def step(
@@ -141,3 +141,8 @@ class ComposedStateLanguageModel(nn.Module):
             new_memories.append(new_memory)
         x = self.norm(x)
         return self.logits_from_hidden(x), new_memories
+
+
+# Backwards-compatible public aliases for the original composed-state naming.
+ComposedStateOutput = ReciprocationOutput
+ComposedStateLanguageModel = ReciprocationLanguageModel

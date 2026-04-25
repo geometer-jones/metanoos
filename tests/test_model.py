@@ -2,8 +2,14 @@ import pytest
 import torch
 
 from metanoos import (
+    ComposedStateBlock,
     ComposedStateLanguageModel,
+    ComposedStateOutput,
     ComposedStateMixing,
+    ReciprocationBlock,
+    ReciprocationLanguageModel,
+    ReciprocationOutput,
+    ReciprocationMixer,
     ablation_model_kwargs,
     apply_rotary_position_encoding,
     available_ablations,
@@ -11,6 +17,13 @@ from metanoos import (
     positive_gate,
     real_parameter_count,
 )
+
+
+def test_reciprocation_api_keeps_composed_state_aliases() -> None:
+    assert ComposedStateBlock is ReciprocationBlock
+    assert ComposedStateMixing is ReciprocationMixer
+    assert ComposedStateLanguageModel is ReciprocationLanguageModel
+    assert ComposedStateOutput is ReciprocationOutput
 
 
 def test_gate_is_real_positive_and_phase_feature_is_complex() -> None:
@@ -26,7 +39,7 @@ def test_gate_is_real_positive_and_phase_feature_is_complex() -> None:
 
 def test_mixing_scan_matches_step() -> None:
     torch.manual_seed(0)
-    layer = ComposedStateMixing(d_model=8, num_heads=2)
+    layer = ReciprocationMixer(d_model=8, num_heads=2)
     x = torch.randn(2, 5, 8, dtype=torch.cfloat)
 
     full = layer(x)
@@ -42,7 +55,7 @@ def test_mixing_scan_matches_step() -> None:
 
 def test_mixing_supports_separate_key_value_dims() -> None:
     torch.manual_seed(0)
-    layer = ComposedStateMixing(d_model=8, num_heads=2, key_dim=3, value_dim=5)
+    layer = ReciprocationMixer(d_model=8, num_heads=2, key_dim=3, value_dim=5)
     x = torch.randn(2, 5, 8, dtype=torch.cfloat)
 
     full, prefix = layer(x, return_state=True)
@@ -72,7 +85,7 @@ def test_rope_preserves_phase_feature_magnitude() -> None:
 
 def test_mixing_rope_scan_matches_step_with_position_offset() -> None:
     torch.manual_seed(0)
-    layer = ComposedStateMixing(d_model=8, num_heads=2, position_encoding="rope")
+    layer = ReciprocationMixer(d_model=8, num_heads=2, position_encoding="rope")
     x = torch.randn(2, 5, 8, dtype=torch.cfloat)
     position_offset = 7
 
@@ -88,7 +101,7 @@ def test_mixing_rope_scan_matches_step_with_position_offset() -> None:
 
 
 def test_rope_step_requires_position() -> None:
-    layer = ComposedStateMixing(d_model=8, num_heads=2, position_encoding="rope")
+    layer = ReciprocationMixer(d_model=8, num_heads=2, position_encoding="rope")
     x = torch.randn(2, 8, dtype=torch.cfloat)
 
     with pytest.raises(ValueError, match="position is required"):
@@ -97,22 +110,22 @@ def test_rope_step_requires_position() -> None:
 
 def test_head_dim_must_match_explicit_key_value_dims() -> None:
     with pytest.raises(ValueError, match="key_dim must match head_dim"):
-        ComposedStateMixing(d_model=8, num_heads=2, head_dim=4, key_dim=3)
+        ReciprocationMixer(d_model=8, num_heads=2, head_dim=4, key_dim=3)
 
     with pytest.raises(ValueError, match="value_dim must match head_dim"):
-        ComposedStateMixing(d_model=8, num_heads=2, head_dim=4, value_dim=3)
+        ReciprocationMixer(d_model=8, num_heads=2, head_dim=4, value_dim=3)
 
 
 def test_position_encoding_must_be_known() -> None:
     with pytest.raises(ValueError, match="position_encoding must be one of"):
-        ComposedStateMixing(d_model=8, num_heads=2, position_encoding="learned")
+        ReciprocationMixer(d_model=8, num_heads=2, position_encoding="learned")
 
 
 @pytest.mark.parametrize("transport", ["rotary_decay", "decay", "none"])
 @pytest.mark.parametrize("feature_mode", ["complex", "magnitude"])
 def test_mixing_ablation_modes_scan_match_step(transport: str, feature_mode: str) -> None:
     torch.manual_seed(0)
-    layer = ComposedStateMixing(d_model=8, num_heads=2, transport=transport, feature_mode=feature_mode)
+    layer = ReciprocationMixer(d_model=8, num_heads=2, transport=transport, feature_mode=feature_mode)
     x = torch.randn(2, 5, 8, dtype=torch.cfloat)
 
     full = layer(x)
@@ -128,7 +141,7 @@ def test_mixing_ablation_modes_scan_match_step(transport: str, feature_mode: str
 
 def test_language_model_outputs_real_logits_and_loss() -> None:
     torch.manual_seed(0)
-    model = ComposedStateLanguageModel(vocab_size=17, d_model=8, num_layers=2, num_heads=2)
+    model = ReciprocationLanguageModel(vocab_size=17, d_model=8, num_layers=2, num_heads=2)
     input_ids = torch.randint(0, 17, (3, 4))
 
     out = model(input_ids, labels=input_ids)
@@ -141,7 +154,7 @@ def test_language_model_outputs_real_logits_and_loss() -> None:
 
 def test_language_model_scan_matches_step() -> None:
     torch.manual_seed(0)
-    model = ComposedStateLanguageModel(vocab_size=13, d_model=8, num_layers=2, num_heads=2)
+    model = ReciprocationLanguageModel(vocab_size=13, d_model=8, num_layers=2, num_heads=2)
     input_ids = torch.randint(0, 13, (2, 5))
 
     full = model(input_ids).logits
@@ -157,7 +170,7 @@ def test_language_model_scan_matches_step() -> None:
 
 def test_language_model_rope_scan_matches_step_with_positions() -> None:
     torch.manual_seed(0)
-    model = ComposedStateLanguageModel(
+    model = ReciprocationLanguageModel(
         vocab_size=13,
         d_model=8,
         num_layers=2,
@@ -194,7 +207,7 @@ def test_named_ablation_presets_instantiate() -> None:
     input_ids = torch.randint(0, 13, (2, 4))
     for spec in available_ablations():
         torch.manual_seed(0)
-        model = ComposedStateLanguageModel(
+        model = ReciprocationLanguageModel(
             vocab_size=13,
             d_model=8,
             num_layers=1,
@@ -215,7 +228,7 @@ def test_ablation_kwargs_allow_overrides() -> None:
 
 
 def test_language_model_can_tie_readout_carrier_to_embedding() -> None:
-    model = ComposedStateLanguageModel(
+    model = ReciprocationLanguageModel(
         vocab_size=17,
         d_model=8,
         num_layers=1,
@@ -228,8 +241,8 @@ def test_language_model_can_tie_readout_carrier_to_embedding() -> None:
 
 
 def test_real_param_count_counts_complex_params_and_tying() -> None:
-    untied = ComposedStateLanguageModel(vocab_size=17, d_model=8, num_layers=1, num_heads=2)
-    tied = ComposedStateLanguageModel(
+    untied = ReciprocationLanguageModel(vocab_size=17, d_model=8, num_layers=1, num_heads=2)
+    tied = ReciprocationLanguageModel(
         vocab_size=17,
         d_model=8,
         num_layers=1,
@@ -244,7 +257,7 @@ def test_real_param_count_counts_complex_params_and_tying() -> None:
 
 def test_born_readout_is_global_phase_invariant() -> None:
     torch.manual_seed(0)
-    model = ComposedStateLanguageModel(vocab_size=11, d_model=6, num_layers=1, num_heads=2, readout="born")
+    model = ReciprocationLanguageModel(vocab_size=11, d_model=6, num_layers=1, num_heads=2, readout="born")
     hidden = torch.randn(2, 3, 6, dtype=torch.cfloat)
     theta = torch.tensor(1.7)
 
@@ -256,7 +269,7 @@ def test_born_readout_is_global_phase_invariant() -> None:
 
 def test_language_model_adamw_step_handles_complex_readout_gradients() -> None:
     torch.manual_seed(0)
-    model = ComposedStateLanguageModel(vocab_size=17, d_model=8, num_layers=1, num_heads=2)
+    model = ReciprocationLanguageModel(vocab_size=17, d_model=8, num_layers=1, num_heads=2)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
     input_ids = torch.randint(0, 17, (2, 5))
     labels = torch.randint(0, 17, (2, 5))
@@ -276,7 +289,7 @@ def test_language_model_adamw_step_handles_complex_readout_gradients() -> None:
 def test_language_model_cuda_forward_backward() -> None:
     torch.manual_seed(0)
     device = torch.device("cuda")
-    model = ComposedStateLanguageModel(vocab_size=17, d_model=8, num_layers=1, num_heads=2).to(device)
+    model = ReciprocationLanguageModel(vocab_size=17, d_model=8, num_layers=1, num_heads=2).to(device)
     input_ids = torch.randint(0, 17, (2, 5), device=device)
     labels = torch.randint(0, 17, (2, 5), device=device)
 

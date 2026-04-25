@@ -1,4 +1,4 @@
-"""Complex GLA layers built around an associative scan state."""
+"""Reciprocation layers built around an associative scan state."""
 
 from __future__ import annotations
 
@@ -119,7 +119,7 @@ class TemporalTransport(nn.Module):
         return alpha_s, alpha_z
 
 
-class ComposedStateMixing(nn.Module):
+class ReciprocationMixer(nn.Module):
     """Causal sequence mixer using associative complex relational state."""
 
     def __init__(
@@ -286,8 +286,8 @@ class ComplexMLP(nn.Module):
         return self.fc2(self.act(self.fc1(x)))
 
 
-class ComposedStateBlock(nn.Module):
-    """Residual block: complex composed-state mixer plus phase-preserving MLP."""
+class ReciprocationBlock(nn.Module):
+    """Residual block: reciprocation mixer plus phase-preserving MLP."""
 
     def __init__(
         self,
@@ -306,7 +306,7 @@ class ComposedStateBlock(nn.Module):
     ) -> None:
         super().__init__()
         self.norm1 = ComplexRMSNorm(d_model, eps)
-        self.mix = ComposedStateMixing(
+        self.mix = ReciprocationMixer(
             d_model,
             num_heads=num_heads,
             head_dim=head_dim,
@@ -336,3 +336,8 @@ class ComposedStateBlock(nn.Module):
         x = x + mixed
         x = x + self.mlp(self.norm2(x))
         return x, new_memory
+
+
+# Backwards-compatible public aliases for the original composed-state naming.
+ComposedStateMixing = ReciprocationMixer
+ComposedStateBlock = ReciprocationBlock

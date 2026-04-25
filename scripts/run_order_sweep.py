@@ -19,7 +19,7 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from metanoos import ComposedStateLanguageModel, ablation_model_kwargs  # noqa: E402
+from metanoos import ReciprocationLanguageModel, ablation_model_kwargs  # noqa: E402
 
 
 DEFAULT_PRESETS = [
@@ -167,8 +167,8 @@ def sample_batch(args: argparse.Namespace, device: torch.device, generator: torc
     )
 
 
-def build_model(args: argparse.Namespace, preset: str, device: torch.device) -> ComposedStateLanguageModel:
-    return ComposedStateLanguageModel(
+def build_model(args: argparse.Namespace, preset: str, device: torch.device) -> ReciprocationLanguageModel:
+    return ReciprocationLanguageModel(
         vocab_size=args.vocab_size,
         d_model=args.d_model,
         num_layers=args.num_layers,
@@ -180,7 +180,7 @@ def build_model(args: argparse.Namespace, preset: str, device: torch.device) -> 
     ).to(device)
 
 
-def transport_snapshot(model: ComposedStateLanguageModel) -> list[dict[str, Any]]:
+def transport_snapshot(model: ReciprocationLanguageModel) -> list[dict[str, Any]]:
     snapshots = []
     for layer_index, block in enumerate(model.blocks):
         transport = block.mix.transport
@@ -203,7 +203,7 @@ def transport_snapshot(model: ComposedStateLanguageModel) -> list[dict[str, Any]
 
 @torch.no_grad()
 def evaluate(
-    model: ComposedStateLanguageModel,
+    model: ReciprocationLanguageModel,
     args: argparse.Namespace,
     *,
     device: torch.device,

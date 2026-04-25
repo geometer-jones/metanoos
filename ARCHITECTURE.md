@@ -251,12 +251,13 @@ is not phase-invariant and is a useful comparison point.
 
 ## Block Dynamics
 
-A model block is a residual transformation of complex state.
+A reciprocation block is a residual transformation of complex state. It wraps
+the composed-state primitive as a trainable sequence mixer.
 
 Conceptually:
 
 ```text
-x <- x + Mix(Norm(x))
+x <- x + Reciprocation(Norm(x))
 x <- x + MLP(Norm(x))
 ```
 
@@ -287,7 +288,7 @@ output_t = sum_s weight(t, s) v_s
 Its ontology is pairwise: sequence positions are compared directly, and the
 resulting normalized matrix mediates retrieval.
 
-The composed-state architecture instead constructs a prefix sufficient statistic:
+The reciprocation architecture instead constructs a prefix sufficient statistic:
 
 ```text
 A_s -> P_t = A_1 o ... o A_t
@@ -295,7 +296,8 @@ y_t = measure(P_t, q_t)
 ```
 
 Its ontology is generative and relational: positions deposit contributions into
-a causal state, and queries measure that state.
+a causal state, and later positions measure a normalized response from that
+state.
 
 The prefix state here is a rank-1 recurrent accumulator with a per-head
 complex pole and a real normalizer — a familiar structural choice in the
@@ -311,9 +313,10 @@ At the sequence level:
 ```text
 tokens
   -> complex token states
-  -> local relational generators
-  -> associative prefix states
-  -> query-conditioned measurements
+  -> reciprocation mixer
+     -> local relational generators
+     -> associative prefix states
+     -> query-conditioned measurements
   -> complex hidden states
   -> gauge-aware vocabulary measurement
   -> real logits

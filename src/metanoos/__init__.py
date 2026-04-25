@@ -1,4 +1,4 @@
-"""Complex-valued gated linear attention models."""
+"""Complex-valued reciprocation models."""
 
 from metanoos.ablations import AblationSpec, ablation_model_kwargs, available_ablations, get_ablation
 from metanoos.complex_ops import (
@@ -21,10 +21,18 @@ from metanoos.corpora import (
 from metanoos.layers import (
     ComposedStateBlock,
     ComposedStateMixing,
+    ReciprocationBlock,
+    ReciprocationMixer,
     TemporalTransport,
     apply_rotary_position_encoding,
 )
-from metanoos.model import ComposedStateLanguageModel, ComposedStateOutput, real_parameter_count
+from metanoos.model import (
+    ComposedStateLanguageModel,
+    ComposedStateOutput,
+    ReciprocationLanguageModel,
+    ReciprocationOutput,
+    real_parameter_count,
+)
 from metanoos.state import (
     AssociativeState,
     StateMemoryEstimate,
@@ -50,6 +58,10 @@ __all__ = [
     "ComposedStateMixing",
     "ComposedStateOutput",
     "ModReLU",
+    "ReciprocationBlock",
+    "ReciprocationLanguageModel",
+    "ReciprocationMixer",
+    "ReciprocationOutput",
     "StateMemoryEstimate",
     "TemporalTransport",
     "ablation_model_kwargs",

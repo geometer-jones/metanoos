@@ -22,7 +22,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from metanoos import (  # noqa: E402
-    ComposedStateLanguageModel,
+    ReciprocationLanguageModel,
     ablation_model_kwargs,
     available_corpora,
     read_corpus_text,
@@ -192,7 +192,7 @@ def parameter_grad_norm(model: torch.nn.Module) -> float:
 
 @torch.no_grad()
 def evaluate(
-    model: ComposedStateLanguageModel,
+    model: ReciprocationLanguageModel,
     data: torch.Tensor,
     *,
     batch_size: int,
@@ -220,7 +220,7 @@ def evaluate(
 
 @torch.no_grad()
 def generate_sample(
-    model: ComposedStateLanguageModel,
+    model: ReciprocationLanguageModel,
     *,
     prompt: str,
     max_new_tokens: int,
@@ -277,9 +277,9 @@ def make_run_dir(args: argparse.Namespace) -> Path:
     return run_dir
 
 
-def build_model(args: argparse.Namespace, device: torch.device) -> ComposedStateLanguageModel:
+def build_model(args: argparse.Namespace, device: torch.device) -> ReciprocationLanguageModel:
     kwargs = ablation_model_kwargs(args.preset)
-    model = ComposedStateLanguageModel(
+    model = ReciprocationLanguageModel(
         vocab_size=256,
         d_model=args.d_model,
         num_layers=args.num_layers,
@@ -315,7 +315,7 @@ def save_checkpoint(
     *,
     step: int,
     args: argparse.Namespace,
-    model: ComposedStateLanguageModel,
+    model: ReciprocationLanguageModel,
     optimizer: torch.optim.Optimizer,
     train_generator: torch.Generator,
     val_generator: torch.Generator,
@@ -371,7 +371,7 @@ def last_metric_elapsed_seconds(metrics_path: Path) -> float:
 def metadata_for_run(
     args: argparse.Namespace,
     *,
-    model: ComposedStateLanguageModel,
+    model: ReciprocationLanguageModel,
     train_tokens: int,
     val_tokens: int,
     device: torch.device,
