@@ -286,3 +286,80 @@ real parameter count, fixed-prompt samples.
 
 **Rule:** Do not compare layouts across different vocabularies/tokenizers
 without recomputing budgets.
+
+### Experiment 010 - 2026-04-24 - Split Ablation: Phase vs. Sign vs. Floor
+
+**Status:** TODO. Requires Experiment 007 and a reference GLA implementation.
+
+**Purpose:** Determine whether the mass/content split earns its capacity cost,
+and whether complex content (phase) outperforms real signed content (sign bits).
+
+**Core design.** 2×2 factorial + floor, parameter-matched and training-matched.
+
+| | real decay | rotary transport |
+|---|---|---|
+| **real signed content** | top-left | top-right |
+| **complex content** | bottom-left | bottom-right (current default) |
+
+Plus:
+
+| Cell | Preset (proposed) | Content channel | Transport |
+|---|---|---|---|
+| floor | `no_split_gla` | single real state, no mass/content split | standard GLA decay |
+| top-left | `real_signed_real_decay` | real signed, separate mass ledger | real positive decay |
+| top-right | `real_signed_rotary_decay` | real signed, separate mass ledger | learned per-head rotary |
+| bottom-left | `complex_real_decay` | complex phase, separate mass ledger | real positive decay |
+| bottom-right | `complex_rotary_gla` | complex phase, separate mass ledger | learned per-head rotary |
+
+**Parameter matching.** Each cell has the same total real-parameter budget.
+The split partitions the budget into mass (real) + content (real or complex)
+channels; the floor uses the full budget for a single state. Complex params
+count as two real params.
+
+**Training matching.** Fixed across all cells: optimizer (AdamW), learning
+rate, schedule, weight decay, step count, seed budget, batch size, sequence
+length, evaluation interval, and data. No per-cell hyperparameter tuning. If
+tuning is unavoidable, each cell gets an identical tuning compute budget and
+the best-of is reported.
+
+**Floor quality.** The floor must be a serious baseline, not a strawman.
+Implement against a known-strong GLA reference implementation with the same
+care as the full system. A sloppy floor makes the split look good by default.
+
+**Isolated questions.**
+
+| Comparison | Question |
+|---|---|
+| floor vs. top-left | Does the split matter at all? |
+| top-left vs. bottom-left | Does continuous phase beat sign (U(1) vs Z₂)? |
+| top-left vs. top-right | Does rotational transport help without content interference? |
+| bottom-left vs. bottom-right | Does rotational transport add to already-complex content? |
+| top-right vs. bottom-right | Does complex content add to already-rotating transport? |
+
+**Interference sources.** The 2×2 separates two independent mechanisms:
+- *Deposit-phase interference* (bottom row): content can cancel at write time.
+- *Transport-phase interference* (right column): content can cancel after aging.
+
+**Statistical analysis.** Factorial fit on the 2×2, not just pairwise
+comparisons. Main effect of deposit-phase, main effect of transport-phase,
+and the interaction term. If deposit-phase interference only helps given
+rotational transport, that surfaces as a significant interaction — "phase
+diversity from aging is what makes deposit-phase interference useful."
+
+**Preregistered thresholds.** Set before running:
+
+- *Split threshold:* minimum perplexity gap between floor and top-left that
+  justifies the split's architectural complexity. Below this, the split is
+  detectable but not worth keeping.
+- *Phase threshold:* minimum gap between top-left and bottom-left that
+  justifies complex arithmetic over sign bits.
+- *Transport threshold:* minimum gap between top-left and top-right that
+  justifies learned rotary poles over real decay.
+
+Thresholds are set before results are seen. Post-hoc rationalization of
+whatever the numbers say is not acceptable.
+
+**Rule:** This experiment can falsify the architecture's central claim. If
+the floor matches or beats the split variants, the split is decoration and
+the 2×2 measures noise above it. A testbed that cannot produce a null result
+for its own thesis is not a testbed.
